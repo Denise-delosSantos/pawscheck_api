@@ -36,6 +36,7 @@ mail = Mail(app)
 
 # Model and Schema
 class Owner(db.Model):
+    __tablename__ = 'owner'
     id = db.Column(db.Integer, primary_key=True)
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
@@ -64,6 +65,7 @@ owner_schema = OwnerSchema()
 owners_schema = OwnerSchema(many=True)
 
 class Pet(db.Model):
+    __tablename__ = 'pet'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     age = db.Column(db.Integer, nullable=False)
@@ -86,6 +88,7 @@ pet_schema = PetSchema()
 pets_schema = PetSchema(many=True)
 
 class Record(db.Model):
+    __tablename__ = 'record'
     id = db.Column(db.Integer, primary_key=True)
     remedy = db.Column(db.String, nullable=False)
     comments = db.Column(db.String)
@@ -108,6 +111,7 @@ record_schema = RecordSchema()
 records_schema = RecordSchema(many=True)
 
 class Appointment(db.Model):
+    __tablename__ = 'appointment'
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(100), nullable=False)
     date = db.Column(db.String(100), nullable=False)
@@ -125,6 +129,7 @@ appointment_schema = AppointmentSchema()
 appointments_schema = AppointmentSchema(many=True)
 
 class Vet(db.Model):
+    __tablename__ = 'vet'
     id = db.Column(db.Integer, primary_key=True)
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
@@ -138,6 +143,7 @@ class Vet(db.Model):
         return check_password_hash(self.password, password)
 
 class Admin(db.Model):
+    __tablename__ = 'admin'
     id = db.Column(db.Integer, primary_key=True)
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
@@ -161,7 +167,9 @@ def register():
     address = request.form['address']
     age = request.form['age']
     gender = request.form['gender']
-    signature = request.form['signature']
+    
+    signature_file = request.files['signature']
+    signature = signature_file.read()
 
     if not first_name or not last_name or not email_address or not contact_number or not password or not address or not age or not gender:
         response = {
@@ -338,17 +346,40 @@ def all_pet():
     response = pets_schema.dump(pets)
     return jsonify(response), 200
 
-# @app.route('/pet/<int:pet_id>', methods=['GET'])
-# # @jwt_required()
-# def get_pet(pet_id):
-#     join = db.session.query(Owner, Pet).filter(Owner.id == 1, Pet.id == 1, Owner.id == Pet.owner_id)
-#     print (join)
-    
-#     response = {
-#             "message": "Test"
-#         }
+@app.route('/pet/<int:pet_id>', methods=['GET'])
+@jwt_required()
+def get_pet(pet_id):
+    owner_id = get_jwt_identity()
+    join = db.session.query(Pet, Owner).join(Owner, Pet.owner_id == Owner.id).filter(owner_id == owner_id, Pet.id == pet_id).first()
+    if join:
+        pet, owner = join
+        pet_profile_base64 = base64.b64encode(pet.profile).decode()
+        owner_profile_base64 = base64.b64encode(owner.profile).decode()
 
-#     return jsonify(response), 201
+        results = {
+                'pet_name': pet.name,
+                'pet_age': pet.age,
+                'pet_gender': pet.gender,
+                'pet_breed': pet.breed,
+                'pet_birthdate': pet.birthdate,
+                'pet_markings': pet.markings,
+                'pet_vaccination': pet.vaccination,
+                'pet_deworming': pet.deworming,
+                'pet_profile': pet_profile_base64,
+                'owner_first_name': owner.first_name,
+                'owner_last_name': owner.last_name,
+                'owner_email_address': owner.email_address,
+                'owner_contact_number': owner.contact_number,
+                'owner_password': owner.password,
+                'owner_address': owner.address,
+                'owner_age': owner.age,
+                'owner_gender': owner.gender,
+                'owner_profile': owner.profile
+            }
+
+        return jsonify(results), 200
+    else:
+        return jsonify({'message': 'User not found'}), 404
 
 @app.route('/pet', methods=['POST'])
 @jwt_required()
@@ -366,10 +397,10 @@ def add_pet():
         deworming = request.form['deworming']
         profile_file = request.files['profile']
         profile = profile_file.read()
-        profie_base64 = base64.b64encode(profile)
+        profile_base64 = base64.b64encode(profile)
 
         pet = Pet(owner_id = owner_id, name = name, age = age, gender = gender,
-                    breed = breed, birthdate = birthdate, markings = markings, vaccination = vaccination, deworming = deworming, profile = profie_base64)        
+                    breed = breed, birthdate = birthdate, markings = markings, vaccination = vaccination, deworming = deworming, profile = profile_base64)        
 
         db.session.add(pet)
         db.session.commit()
@@ -403,6 +434,31 @@ def update_pet(pet_id):
             pet.markings = request.form['markings']
             pet.vaccination = request.form['vaccination']
             pet.deworming = request.form['deworming']
+            # profile_file = request.files['profile']
+            # pet.profile = profile_file.read()
+            
+            db.session.commit()
+            response = {
+                "message": "Successfully Update"
+            }
+
+            return jsonify(response), 200
+
+    except (ValueError, TypeError):
+        response = {
+            "error" : "Invalid data"
+        }
+
+        return jsonify(response), 400
+
+@app.route('/pet/<int:pet_id>/update/profile', methods=['PUT'])
+@jwt_required()
+def update_pet_photo(pet_id):
+    try:
+        owner_id = get_jwt_identity()
+
+        pet = Pet.query.filter_by(id=pet_id, owner_id=owner_id).first()
+        if pet:
             profile_file = request.files['profile']
             pet.profile = profile_file.read()
             
