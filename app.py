@@ -171,6 +171,8 @@ def register():
     signature_file = request.files['signature']
     signature = signature_file.read()
 
+    signature_base64 = base64.b64encode(signature)
+
     if not first_name or not last_name or not email_address or not contact_number or not password or not address or not age or not gender:
         response = {
             "error": "Please input field"
@@ -188,7 +190,7 @@ def register():
         return jsonify(response), 400
 
     owner = Owner(first_name = first_name, last_name = last_name, email_address = email_address,
-                    contact_number = contact_number, address = address, age = age, gender = gender, signature = signature)
+                    contact_number = contact_number, address = address, age = age, gender = gender, signature = signature_base64)
     owner.set_password(password)
 
     db.session.add(owner)
@@ -299,7 +301,7 @@ def get_owner():
         return jsonify(response), 400
 
 
-@app.route('/owner/update', methods=['PUT'])
+""" @app.route('/owner/update', methods=['PUT'])
 @jwt_required()
 def update_owner():
     try:
@@ -332,7 +334,7 @@ def update_owner():
             "error" : "Invalid data"
         }
 
-        return jsonify(response), 400
+        return jsonify(response), 400 """
 
 # ===============PET=======================================================================================================================
 
@@ -458,7 +460,7 @@ def add_pet():
         
         return jsonify(response), 400
 
-@app.route('/pet/<int:pet_id>/update', methods=['PUT'])
+""" @app.route('/pet/<int:pet_id>/update', methods=['PUT'])
 @jwt_required()
 def update_pet(pet_id):
     try:
@@ -474,8 +476,8 @@ def update_pet(pet_id):
             pet.markings = request.form['markings']
             pet.vaccination = request.form['vaccination']
             pet.deworming = request.form['deworming']
-            # profile_file = request.files['profile']
-            # pet.profile = profile_file.read()
+            profile_file = request.files['profile']
+            pet.profile = profile_file.read()
             
             db.session.commit()
             response = {
@@ -489,7 +491,7 @@ def update_pet(pet_id):
             "error" : "Invalid data"
         }
 
-        return jsonify(response), 400
+        return jsonify(response), 400 """
 
 @app.route('/pet/<int:pet_id>/update/profile', methods=['PUT'])
 @jwt_required()
@@ -548,13 +550,13 @@ def delete_pet(pet_id):
 
 # ==========RECORDS==========================================================================================================================
 
-@app.route('/pet/<int:pet_id>/records', methods=['GET'])
+""" @app.route('/pet/<int:pet_id>/records', methods=['GET'])
 @jwt_required()
 def all_record(pet_id):
     records = Record.query.filter_by(pet_id = pet_id).all()
 
     response = records_schema.dump(records)
-    return jsonify(response), 200
+    return jsonify(response), 200 """
 
 @app.route('/pet/<int:pet_id>/record', methods=['POST'])
 @jwt_required()
@@ -605,6 +607,30 @@ def add_record(pet_id):
         }
         
         return jsonify(response), 400
+    
+@app.route('/pet/<int:pet_id>/records', methods=['GET'])
+# @jwt_required()
+def list_records_pet(pet_id):
+    
+    owner_id = 1
+    join = db.session.query(Appointment, Record, Pet).join(Record, Appointment.record_id == Record.id, isouter = True).join(Pet, Appointment.pet_id == Pet.id, isouter = True).filter(Pet.owner_id == owner_id, pet_id == Record.pet_id, pet_id == Appointment.pet_id).all()
+    # join = db.session.query(Appointment, Record).filter(pet_id == Record.pet_id, pet_id == Appointment.pet_id).all()
+    left_join = Pet.query.outerjoin(Record, Pet.id == Record.column1, isouter=True)
+
+    print(left_join)
+
+    if join:
+        
+        for appointment, record, pet in join:
+            result = {
+                "appointment_date": appointment
+                # "remedy": record.remedy,
+                # "pet_name": pet.name
+                }
+
+            return jsonify(result), 200
+        # return jsonify({"msg": "Test"}), 200
+
 
 # ===========APPOINTMENTS======================================================================================================================
 
@@ -786,6 +812,6 @@ def delete_owner(owner_id):
 # Run Server
 if __name__ == '__main__':
     with app.app_context():
-        db.drop_all()
+        # db.drop_all()
         db.create_all()
     app.run(host='0.0.0.0', port=5000, debug=True)
