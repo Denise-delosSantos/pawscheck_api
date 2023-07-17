@@ -241,7 +241,7 @@ def forgot_password_owner():
 
             return jsonify(response), 401
 
-        msg = Message(subject = 'PawsCheck Verification Code', sender = 'pawscheck@gmail.com', recipients = ['nekodelossantos@gmail.com'])
+        msg = Message(subject = 'PawsCheck Verification Code', sender = 'pawscheck@gmail.com', recipients = [email_address])
         msg.body = f"{secret} is your verification code. \nPlease complete the account verification process in 60 seconds."
         mail.send(msg)
         
@@ -374,12 +374,52 @@ def get_pet(pet_id):
                 'owner_address': owner.address,
                 'owner_age': owner.age,
                 'owner_gender': owner.gender,
-                'owner_profile': owner.profile
+                'owner_profile': owner_profile_base64
             }
 
         return jsonify(results), 200
     else:
-        return jsonify({'message': 'User not found'}), 404
+        return jsonify({'message': 'Not found'}), 404
+
+@app.route('/pet/<int:pet_id>', methods=['PUT'])
+@jwt_required()
+def update_pet_owner(pet_id):
+    try:
+        owner_id = get_jwt_identity()
+        join = db.session.query(Pet, Owner).join(Owner, Pet.owner_id == Owner.id).filter(owner_id == owner_id, Pet.id == pet_id).first()
+        if join:
+            pet, owner = join
+
+            pet.name = request.form['name']
+            pet.age = request.form['age']
+            pet.gender = request.form['gender']
+            pet.breed = request.form['breed']
+            pet.birthdate = request.form['birthdate']
+            pet.markings = request.form['markings']
+            pet.vaccination = request.form['vaccination']
+            pet.deworming = request.form['deworming']
+
+            owner.first_name = request.form['first_name']
+            owner.last_name = request.form['last_name']
+            owner.contact_number = request.form['contact_number']
+            owner.address = request.form['address'] 
+            profile_file = request.files['profile']
+            profile_read = profile_file.read()
+            owner.profile = base64.b64encode(profile_read)
+            
+            db.session.commit()
+            response = {
+                "message": "Successfully Update"
+            }
+
+            return jsonify(response), 200
+
+    except (ValueError, TypeError):
+        response = {
+            "error" : "Invalid data"
+        }
+
+        return jsonify(response), 400
 
 @app.route('/pet', methods=['POST'])
 @jwt_required()
