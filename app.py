@@ -87,6 +87,13 @@ class PetSchema(ma.Schema):
 pet_schema = PetSchema()
 pets_schema = PetSchema(many=True)
 
+""" class PetOwnerSchema(ma.Schema):
+    class Meta:
+        fields = ("pet_name", "pet_age", "pet_gender", "pet_breed", "pet_birthdate", "pet_markings", "pet_vaccination", "pet_deworming", "pet_profile", "owner_first_name", "owner_last_name", "owner_contact_number", "owner_address")
+
+pet_owner_schema = PetOwnerSchema()
+pets_owners_schema = PetOwnerSchema(many=True) """
+
 class Record(db.Model):
     __tablename__ = 'record'
     id = db.Column(db.Integer, primary_key=True)
@@ -355,8 +362,9 @@ def get_pet(pet_id):
     join = db.session.query(Pet, Owner).join(Owner, Pet.owner_id == Owner.id).filter(owner_id == owner_id, Pet.id == pet_id).first()
     if join:
         pet, owner = join
-        pet_profile_base64 = base64.b64encode(pet.profile).decode()
-        owner_profile_base64 = base64.b64encode(owner.profile).decode()
+        
+        pet_profile_base64 = pet.profile.decode()
+        owner_profile_base64 = owner.profile.decode()
 
         results = {
                 'pet_name': pet.name,
@@ -368,6 +376,7 @@ def get_pet(pet_id):
                 'pet_vaccination': pet.vaccination,
                 'pet_deworming': pet.deworming,
                 'pet_profile': pet_profile_base64,
+
                 'owner_first_name': owner.first_name,
                 'owner_last_name': owner.last_name,
                 'owner_email_address': owner.email_address,
@@ -377,13 +386,13 @@ def get_pet(pet_id):
                 'owner_age': owner.age,
                 'owner_gender': owner.gender,
                 'owner_profile': owner_profile_base64
-            }
+        }
 
         return jsonify(results), 200
     else:
         return jsonify({'message': 'Not found'}), 404
 
-@app.route('/pet/<int:pet_id>', methods=['PUT'])
+@app.route('/pet/<int:pet_id>/update', methods=['PUT'])
 @jwt_required()
 def update_pet_owner(pet_id):
     try:
