@@ -362,9 +362,36 @@ def get_pet(pet_id):
     join = db.session.query(Pet, Owner).join(Owner, Pet.owner_id == Owner.id).filter(owner_id == owner_id, Pet.id == pet_id).first()
     if join:
         pet, owner = join
+
+        if owner.profile != None:
+            pet_profile_base64 = pet.profile.decode()
+            owner_profile_base64 = owner.profile.decode()
+
+            results = {
+                    'pet_name': pet.name,
+                    'pet_age': pet.age,
+                    'pet_gender': pet.gender,
+                    'pet_breed': pet.breed,
+                    'pet_birthdate': pet.birthdate,
+                    'pet_markings': pet.markings,
+                    'pet_vaccination': pet.vaccination,
+                    'pet_deworming': pet.deworming,
+                    'pet_profile': pet_profile_base64,
+
+                    'owner_first_name': owner.first_name,
+                    'owner_last_name': owner.last_name,
+                    'owner_email_address': owner.email_address,
+                    'owner_contact_number': owner.contact_number,
+                    'owner_password': owner.password,
+                    'owner_address': owner.address,
+                    'owner_age': owner.age,
+                    'owner_gender': owner.gender,
+                    'owner_profile': owner_profile_base64
+            }
+
+            return jsonify(results), 200
         
         pet_profile_base64 = pet.profile.decode()
-        owner_profile_base64 = owner.profile.decode()
 
         results = {
                 'pet_name': pet.name,
@@ -384,11 +411,11 @@ def get_pet(pet_id):
                 'owner_password': owner.password,
                 'owner_address': owner.address,
                 'owner_age': owner.age,
-                'owner_gender': owner.gender,
-                'owner_profile': owner_profile_base64
-        }
+                'owner_gender': owner.gender
+            }
 
         return jsonify(results), 200
+    
     else:
         return jsonify({'message': 'Not found'}), 404
 
@@ -621,8 +648,8 @@ def add_record(pet_id):
 # @jwt_required()
 def list_records_pet(pet_id):
     
-    owner_id = 1
-    join = db.session.query(Appointment, Record, Pet).join(Record, Appointment.record_id == Record.id, isouter = True).join(Pet, Appointment.pet_id == Pet.id, isouter = True).filter(Pet.owner_id == owner_id, pet_id == Record.pet_id, pet_id == Appointment.pet_id).all()
+    pet_id = 1
+    join = db.session.query(Appointment, Record).join(Record, Appointment.record_id == Record.id).filter(pet_id == Record.pet_id, pet_id == Appointment.pet_id).all()
     # join = db.session.query(Appointment, Record).filter(pet_id == Record.pet_id, pet_id == Appointment.pet_id).all()
     left_join = Pet.query.outerjoin(Record, Pet.id == Record.column1, isouter=True)
 
@@ -648,10 +675,25 @@ def list_records_pet(pet_id):
 def all_appointment_owner():
     owner_id = get_jwt_identity()
 
-    appointments = Appointment.query.filter_by(owner_id = owner_id).all()
+    join = db.session.query(Appointment, Pet.name).join(Pet, Appointment.pet_id == Pet.id).filter(owner_id == owner_id).all()
 
-    response = appointments_schema.dump(appointments)
-    return jsonify(response), 200
+    if join:
+        appoinment, pet = join
+
+        results = {
+            'appointment_title': appoinment.title,
+            'appointment_date': appoinment.date,
+            'appointment_time': appoinment.time,
+            'appointment_status': appoinment.status,
+            'pet_name': pet.name
+        }
+
+        return jsonify(results), 200
+
+    """ appointments = Appointment.query.filter_by(owner_id = owner_id).all()
+
+    response = appointments_schema.dump(appointments) """
+    return jsonify([]), 200
 
 @app.route('/pet/<int:pet_id>/appointment', methods=['GET'])
 @jwt_required()
