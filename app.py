@@ -678,15 +678,13 @@ def list_records_pet(pet_id):
         return jsonify(result), 200
 
     elif join:
-        appointment, record = join
-
-        result = {
+        result = [{
             'appointment_date': appointment.date if appointment else None,
             'appointment_time': appointment.time if appointment else None,
             'appointment_status': appointment.status if appointment else None,
             'record_remedy': record.remedy if record else None,
             'record_clinical_photo': record.clinical_sign_photo_1 if record else None
-        }
+        } for appointment, record in join]
         
         return jsonify(result), 200
     
@@ -703,19 +701,16 @@ def list_records_pet(pet_id):
 def all_appointment_owner():
     owner_id = get_jwt_identity()
 
-    join = db.session.query(Appointment, Pet.name).join(Pet, Appointment.pet_id == Pet.id).filter(owner_id == owner_id).all()
-
-    print(db.session.query(Appointment, Pet.name).join(Pet, Appointment.pet_id == Pet.id).filter(owner_id == owner_id))
-
+    join = db.session.query(Appointment, Pet).join(Pet, Appointment.pet_id == Pet.id).filter(Pet.owner_id == owner_id).all()
     if join:
-        appointment, pet = join
-        
-        results = {
+
+        results = [{
+            'appointment_id': appointment.id,
             'appointment_title': appointment.title,
             'appointment_date': appointment.date,
             'appointment_time': appointment.time,
             'pet_name': pet.name
-        }
+        } for appointment, pet in join]
 
         return jsonify(results), 200
 
