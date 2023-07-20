@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import or_
 from flask_marshmallow import Marshmallow
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
@@ -645,27 +646,54 @@ def add_record(pet_id):
         return jsonify(response), 400
     
 @app.route('/pet/<int:pet_id>/records', methods=['GET'])
-# @jwt_required()
+@jwt_required()
 def list_records_pet(pet_id):
-    
-    pet_id = 1
-    join = db.session.query(Appointment, Record).join(Record, Appointment.record_id == Record.id).filter(pet_id == Record.pet_id, pet_id == Appointment.pet_id).all()
-    # join = db.session.query(Appointment, Record).filter(pet_id == Record.pet_id, pet_id == Appointment.pet_id).all()
-    left_join = Pet.query.outerjoin(Record, Pet.id == Record.column1, isouter=True)
 
-    print(left_join)
+    join = db.session.query(Appointment, Record).outerjoin(Record, Appointment.record_id == Record.id).filter(or_(Appointment.pet_id == pet_id, Record.pet_id == pet_id)).all()
 
-    if join:
-        
-        for appointment, record, pet in join:
-            result = {
-                "appointment_date": appointment
-                # "remedy": record.remedy,
-                # "pet_name": pet.name
-                }
+    if all(result[0] is None for result in join):
+        if record.clinical_sign_photo_1 != None:
+            clinical_photo_1 = record.clinical_sign_photo_1.decode()
 
+            result = [{
+                'record_remedy': record.remedy if record else None,
+                'record_clinical_photo': clinical_photo_1 if record else None
+            } for appointment, record in join]
+            
             return jsonify(result), 200
-        # return jsonify({"msg": "Test"}), 200
+
+        result = [{
+            'record_remedy': record.remedy if record else None
+            } for appointment, record in join]
+            
+        return jsonify(result), 200
+
+    elif all(result[1] is None for result in join):
+        result = [{
+            'appointment_date': appointment.date if appointment else None,
+            'appointment_time': appointment.time if appointment else None,
+            'appointment_status': appointment.status if appointment else None
+        } for appointment, record in join]
+        
+        return jsonify(result), 200
+
+    elif join:
+        appointment, record = join
+
+        result = {
+            'appointment_date': appointment.date if appointment else None,
+            'appointment_time': appointment.time if appointment else None,
+            'appointment_status': appointment.status if appointment else None,
+            'record_remedy': record.remedy if record else None,
+            'record_clinical_photo': record.clinical_sign_photo_1 if record else None
+        }
+        
+        return jsonify(result), 200
+    
+    elif not join:
+        result = [{}]
+
+        return result, 200
 
 
 # ===========APPOINTMENTS======================================================================================================================
@@ -677,22 +705,20 @@ def all_appointment_owner():
 
     join = db.session.query(Appointment, Pet.name).join(Pet, Appointment.pet_id == Pet.id).filter(owner_id == owner_id).all()
 
-    if join:
-        appoinment, pet = join
+    print(db.session.query(Appointment, Pet.name).join(Pet, Appointment.pet_id == Pet.id).filter(owner_id == owner_id))
 
+    if join:
+        appointment, pet = join
+        
         results = {
-            'appointment_title': appoinment.title,
-            'appointment_date': appoinment.date,
-            'appointment_time': appoinment.time,
-            'appointment_status': appoinment.status,
+            'appointment_title': appointment.title,
+            'appointment_date': appointment.date,
+            'appointment_time': appointment.time,
             'pet_name': pet.name
         }
 
         return jsonify(results), 200
 
-    """ appointments = Appointment.query.filter_by(owner_id = owner_id).all()
-
-    response = appointments_schema.dump(appointments) """
     return jsonify([]), 200
 
 @app.route('/pet/<int:pet_id>/appointment', methods=['GET'])
@@ -770,7 +796,6 @@ def update_appointment(pet_id, appointment_id):
 @jwt_required()
 def delete_appointment(pet_id, appointment_id):
     try:
-        # get_jwt_identity()
 
         appointment = Pet.query.filter_by(id=appointment_id, pet_id=pet_id).first()
         if appointment:
