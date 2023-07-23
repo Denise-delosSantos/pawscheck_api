@@ -1,6 +1,6 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_
+from sqlalchemy import or_, union
 from flask_marshmallow import Marshmallow
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
@@ -9,6 +9,9 @@ import pyotp
 from flask_mail import Mail, Message
 import os
 from dotenv import load_dotenv
+import csv
+import random
+import time
 
 load_dotenv()
 # Init app
@@ -88,13 +91,6 @@ class PetSchema(ma.Schema):
 pet_schema = PetSchema()
 pets_schema = PetSchema(many=True)
 
-""" class PetOwnerSchema(ma.Schema):
-    class Meta:
-        fields = ("pet_name", "pet_age", "pet_gender", "pet_breed", "pet_birthdate", "pet_markings", "pet_vaccination", "pet_deworming", "pet_profile", "owner_first_name", "owner_last_name", "owner_contact_number", "owner_address")
-
-pet_owner_schema = PetOwnerSchema()
-pets_owners_schema = PetOwnerSchema(many=True) """
-
 class Record(db.Model):
     __tablename__ = 'record'
     id = db.Column(db.Integer, primary_key=True)
@@ -149,6 +145,13 @@ class Vet(db.Model):
     
     def check_password(self, password):
         return check_password_hash(self.password, password)
+    
+class VetSchema(ma.Schema):
+    class Meta:
+        fields = ("id", "first_name", "last_name", "email_address", "password")
+
+vet_schema = VetSchema()
+vets_schema = VetSchema(many=True)
 
 class Admin(db.Model):
     __tablename__ = 'admin'
@@ -163,9 +166,58 @@ class Admin(db.Model):
     
     def check_password(self, password):
         return check_password_hash(self.password, password)
+    
+class ListClinicalSign(db.Model):
+    __tablename__ = 'clinicalSign'
+    id = db.Column(db.Integer, primary_key=True)
+    clinicalSignID = db.Column(db.Integer)
+    clinicalSignName = db.Column(db.Text, nullable=False)
+    alternativeName  = db.Column(db.Text)
+    clinicalSignDescription = db.Column(db.Text, nullable=False)
+    clinicalSignReference = db.Column(db.Text)
+
+    def __repr__(self):
+        return f"<DataModel id={self.id}, clinicalSignID={self.clinicalSignID}, clinicalSignName={self.clinicalSignName}, alternativeName={self.alternativeName}, clinicalSignDescription={self.clinicalSignDescription}, clinicalSignReference={self.clinicalSignReference}>"
 
 # Routes
 
+# Upload CSV
+@app.route('/upload-csv', methods=['POST'])
+def upload_csv():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part in the request'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    if file:
+        save_path = 'data.csv'
+        file.save(save_path)
+        read_csv_and_insert_to_db(save_path)
+        return jsonify({'message': 'CSV uploaded and data inserted to the database successfully'}), 200
+
+def read_csv_and_insert_to_db(csv_path):
+    with open(csv_path, 'r', encoding='utf-8') as csvfile:
+        csvreader = csv.reader(csvfile)
+        next(csvreader)  # Skip the header row
+        for row in csvreader:
+            data = ListClinicalSign(clinicalSignID=row[0], clinicalSignName=row[1], alternativeName=row[2], clinicalSignDescription=row[3], clinicalSignReference=row[4])
+            db.session.add(data)
+    db.session.commit()
+
+@app.route('/get-csv', methods=['GET'])
+def display_csv():
+    data = ListClinicalSign.query.all()
+    results = [{
+            'clinicalSignID': clinicalSign.clinicalSignID,
+            'clinicalSignName': clinicalSign.clinicalSignName,
+            'alternativeName': clinicalSign.alternativeName,
+            'clinicalSignDescription': clinicalSign.clinicalSignDescription
+        } for clinicalSign in data ]
+        
+    return jsonify(results)
+        
 #Sign-up
 @app.route('/signup', methods=['POST'])
 def register():
@@ -258,47 +310,71 @@ def login_owner():
 
     return jsonify(response), 401
 
-#Verification for changing password
-@app.route('/verify', methods=['GET', 'PUT'])
-def forgot_password_owner():
+# Generate Code for OTP
+verification_code = "".join(str(random.randint(0, 9)) for _ in range(6))
+expiration_time = int(time.time()) + 100
+# With Path
+@app.route('/generate-code', methods=['POST'])
+def generate_code():
     email_address = request.form['email_address']
-    input_totp = request.form['input_totp']
-
-    # generating TOTP codes with provided secret
-    totp = pyotp.TOTP("base32secret3232", interval = 60)
-    secret = totp.now()
 
     owner = Owner.query.filter_by(email_address = email_address).first()
-    if request.method == 'GET':
-        if not owner:
-            response = {
-                "error": "Email does not exist"
-            }
-
-            return jsonify(response), 401
-
-        msg = Message(subject = 'PawsCheck Verification Code', sender = 'pawscheck@gmail.com', recipients = [email_address])
-        msg.body = f"{secret} is your verification code. \nPlease complete the account verification process in 60 seconds."
-        mail.send(msg)
-        
+    if not owner:
         response = {
-            "message": f"Verification code is send to your email, {owner.email_address}",
-            "code": f"{secret}"
+            "error": "Email does not exist"
         }
 
-        return jsonify(response), 200
+        return jsonify(response), 401
 
-    if totp.verify(input_totp):
-        new_password = request.form['new_password']
-        confirm_password = request.form['confirm_password']
+    session['verification_code'] = verification_code
+    session['expiration_time'] = expiration_time
+    code_response = {
+        'code': verification_code,
+        'expiration_time': expiration_time
+    }
 
-        if new_password != confirm_password:
-            response = {
-                "error": "Password does not match"
-            }
+    msg = Message(subject = 'PawsCheck Verification Code', sender = 'pawscheck@gmail.com', recipients = [email_address])
+    msg.body = f"{verification_code} is your verification code. \nPlease complete the account verification process in 60 seconds."
+    mail.send(msg)
 
-            return jsonify(response), 401
+    return jsonify(code_response), 200
 
+# Verify the OTP Code
+@app.route('/verify-code', methods=['POST'])
+def verify_code():
+    input_totp = request.form['input_totp']
+
+    """ if 'verification_code' in session and 'expiration_time' in session:
+        verification_code = session['verification_code']
+        expiration_time = session['expiration_time'] """
+    current_time = int(time.time())
+
+    if input_totp == verification_code and current_time <= expiration_time:
+        session.pop('verification_code', None)
+        session.pop('expiration_time', None)
+        return jsonify({'message': 'Verification successful'}), 200
+    else:
+        return jsonify({'message': 'Verification failed'}), 400
+
+    # return jsonify({'message': 'Verification code not found'}), 404
+
+
+# Changing password
+@app.route('/change-password', methods=['PUT'])
+def forgot_password_owner():
+    email_address = request.form['email_address']
+    new_password = request.form['new_password']
+    confirm_password = request.form['confirm_password']
+
+    owner = Owner.query.filter_by(email_address = email_address).first()
+    if new_password != confirm_password:
+        response = {
+            "error": "Password does not match"
+        }
+
+        return jsonify(response), 401
+    
+    elif owner:
         owner.password = request.form['new_password']
         owner.set_password(owner.password)
 
@@ -308,12 +384,8 @@ def forgot_password_owner():
         }
 
         return jsonify(response), 200
-
-    response = {
-        "message": "Invalid Verification Code"
-    }
-
-    return jsonify(response), 401
+    
+    return jsonify({"Error": "Unauthorized"}), 401
 
 #GET owner
 @app.route('/owner', methods=['GET'])
@@ -551,21 +623,12 @@ def delete_pet(pet_id):
 
 # ==========RECORDS==========================================================================================================================
 
-""" @app.route('/pet/<int:pet_id>/records', methods=['GET'])
-@jwt_required()
-def all_record(pet_id):
-    records = Record.query.filter_by(pet_id = pet_id).all()
-
-    response = records_schema.dump(records)
-    return jsonify(response), 200 """
-
 #POST/ADD record of pet based on pet ID
 @app.route('/pet/<int:pet_id>/record', methods=['POST'])
 @jwt_required()
 def add_record(pet_id):
     try:
         remedy = request.form['remedy']
-        comments = request.form['comments']
         create_date = request.form['create_date']
         create_time = request.form['create_time']
 
@@ -589,7 +652,7 @@ def add_record(pet_id):
         clinical_sign_photo_5_read = clinical_sign_photo_5_file.read()
         clinical_sign_photo_5 = base64.b64encode(clinical_sign_photo_5_read)
 
-        record = Record(pet_id = pet_id, remedy = remedy, comments = comments, create_date = create_date, create_time = create_time,
+        record = Record(pet_id = pet_id, remedy = remedy, create_date = create_date, create_time = create_time,
                         clinical_sign_photo_1 = clinical_sign_photo_1, clinical_sign_photo_2 = clinical_sign_photo_2,
                         clinical_sign_photo_3 = clinical_sign_photo_3, clinical_sign_photo_4 = clinical_sign_photo_4,
                         clinical_sign_photo_5 = clinical_sign_photo_5)
@@ -617,30 +680,6 @@ def list_records_pet(pet_id):
 
     join = db.session.query(Appointment, Record).outerjoin(Record, Appointment.record_id == Record.id, full=True).filter(or_(Appointment.pet_id == pet_id, Record.pet_id == pet_id)).all()
 
-    """ if all(result[0] is None for result in join):
-        if record.clinical_sign_photo_1 == None:
-            result = [{
-            'record_remedy': record.remedy if record else None,
-            } for appointment, record in join]
-            
-            return jsonify(result), 200
-
-        result = [{
-            'record_remedy': record.remedy if record else None,
-            'record_clinical_photo': record.clinical_sign_photo_1.decode() if record else None
-            } for appointment, record in join]
-            
-        return jsonify(result), 200
-
-    elif all(result[1] is None for result in join):
-        result = [{
-            'appointment_date': appointment.date if appointment else None,
-            'appointment_time': appointment.time if appointment else None,
-            'appointment_status': appointment.status if appointment else None
-        } for appointment, record in join]
-        
-        return jsonify(result), 200 """
-
     if join:
         result = [{
             'appointment_date': appointment.date if appointment else None,
@@ -659,6 +698,35 @@ def list_records_pet(pet_id):
 
 
 # ===========APPOINTMENTS======================================================================================================================
+
+#GET all appointments
+@app.route('/appointments', methods=['GET'])
+# @jwt_required()
+def all_appointment():
+    
+    join = db.session.query(Appointment, Record, Pet, Owner).outerjoin(Record, Appointment.record_id == Record.id, full=True)
+
+    join1 = db.session.query(Appointment, Record, Pet, Owner).outerjoin(Pet, or_(Appointment.pet_id == Pet.id, Record.pet_id == Pet.id))
+
+    full_outer_join_query = union(join, join1)
+    result = db.session.execute(full_outer_join_query).fetchall()
+
+    print(result)
+    """ if join:
+        results = [{
+            'pet_profile': pet.profile.decode() if pet else None,
+            'pet_name': pet.name if pet else None,
+            'owner_first_name': owner.first_name if owner else None,
+            'owner_last_name': owner.last_name if owner else None,
+            'appointment_date': appointment.date if appointment else None,
+            'appointment_time': appointment.time if appointment else None,
+            'record_create_date': record.create_date if record else None,
+            'record_create_time': record.create_time  if record else None
+        } for appointment, record, pet, owner in join]
+
+        return jsonify(results), 200 """
+
+    return jsonify([]), 200
 
 #GET list of appointments based on owner
 @app.route('/appointment', methods=['GET'])
@@ -799,6 +867,28 @@ def delete_appointment(appointment_id):
 
 # ===========VET========================================================================================================================
 
+#GET vet
+@app.route('/vet', methods=['GET'])
+@jwt_required()
+def get_vet():
+    try: 
+        vet_id = get_jwt_identity()
+
+        vet = Vet.query.filter_by(id = vet_id).first()
+        if vet:
+            response = vet_schema.dump(vet)
+
+            return jsonify(response), 200
+
+    except (KeyError, TypeError):
+        response = {
+            "error": "Authentication expired"
+        }
+        
+        return jsonify(response), 400
+
+# ===========ADMIN======================================================================================================================
+
 #GET list of owners
 @app.route('/owners', methods=['GET'])
 @jwt_required()
@@ -808,6 +898,102 @@ def all_owner():
     response = owners_schema.dump(owners)
     return jsonify(response), 200
 
+# Add Owner by Admin
+@app.route('/add/owner', methods=['POST'])
+@jwt_required()
+def add_owner_admin():
+    first_name = request.form['first_name']
+    last_name = request.form['last_name']
+    email_address = request.form['email_address']
+    password = request.form['password']
+
+    if not first_name or not last_name or not email_address or not password:
+        response = {
+            "error": "Please input field"
+        }
+
+        return jsonify(response), 400
+
+    existing_email = Owner.query.filter_by(email_address=email_address).first()
+
+    if existing_email:
+        response = {
+            "error": "Email already exists"
+        }
+
+        return jsonify(response), 400
+
+    owner = Owner(first_name = first_name, last_name = last_name, email_address = email_address)
+    owner.set_password(password)
+
+    db.session.add(owner)
+    db.session.commit()
+
+    access_token = create_access_token(identity = owner.id)
+    response = {
+        "message": "You registered successfully.",
+        "access_token": access_token
+    }
+
+    return jsonify(response), 201
+
+#DELETE owner account
+@app.route('/owner/<int:owner_id>/delete', methods=['DELETE'])
+@jwt_required()
+def delete_owner(owner_id):
+    try:
+
+        owner = Owner.query.filter_by(id=owner_id).first()
+        if owner:
+            db.session.delete(owner)            
+            db.session.commit()
+            response = {
+                "message": "Successfully Delete"
+            }
+
+            return jsonify(response), 200
+
+        else:
+            response = {
+                "message": "User Not Found"
+            }
+
+            return jsonify(response), 404
+
+    except (ValueError, TypeError):
+        response = {
+            "error" : "Invalid data"
+        }
+
+        return jsonify(response), 400
+
+# Edit owner account
+@app.route('/owner/<int:owner_id>/update', methods=['PUT'])
+@jwt_required()
+def update_owner(owner_id):
+    try:
+
+        owner = Owner.query.filter_by(id=owner_id).first()
+        if owner:
+            owner.first_name = request.form['first_name']
+            owner.last_name = request.form['last_name']
+            owner.email_address = request.form['email_address']
+            owner.password = request.form['password']
+            
+            db.session.commit()
+            response = {
+                "message": "Successfully Update"
+            }
+
+            return jsonify(response), 200
+
+    except (ValueError, TypeError):
+        response = {
+            "error" : "Invalid data"
+        }
+
+        return jsonify(response), 400
+
 #GET list of vets
 @app.route('/vets', methods=['GET'])
 @jwt_required()
@@ -815,9 +1001,10 @@ def all_vet():
     vets = Vet.query.all()
 
     return jsonify(vets), 200
-
+    
 #Add Vet
 @app.route('/add/vet', methods=['POST'])
+@jwt_required()
 def add_vet():
     first_name = request.form['first_name']
     last_name = request.form['last_name']
@@ -854,19 +1041,15 @@ def add_vet():
 
     return jsonify(response), 201
 
-# ===========ADMIN======================================================================================================================
-
-#DELETE owner account
-@app.route('/owner/<int:owner_id>/delete', methods=['DELETE'])
+#DELETE vet account
+@app.route('/vet/<int:vet_id>/delete', methods=['DELETE'])
 @jwt_required()
-def delete_owner(owner_id):
+def delete_vet(vet_id):
     try:
-        admin_id = get_jwt_identity()
 
-        # owner = Owner.query.filter_by(owner_id=owner_id, id=admin_id).first()
-        owner = Owner.query.filter_by(id=owner_id).first()
-        if owner:
-            db.session.delete(owner)            
+        vet = Vet.query.filter_by(id=vet_id).first()
+        if vet:
+            db.session.delete(vet)            
             db.session.commit()
             response = {
                 "message": "Successfully Delete"
@@ -887,6 +1070,44 @@ def delete_owner(owner_id):
         }
 
         return jsonify(response), 400
+    
+#Add Admin
+@app.route('/add/admin', methods=['POST'])
+def add_admin():
+    first_name = request.form['first_name']
+    last_name = request.form['last_name']
+    email_address = request.form['email_address']
+    password = request.form['password']
+
+    if not first_name or not last_name or not email_address or not password:
+        response = {
+            "error": "Please input field"
+        }
+
+        return jsonify(response), 400
+
+    existing_email = Admin.query.filter_by(email_address=email_address).first()
+
+    if existing_email:
+        response = {
+            "error": "Email already exists"
+        }
+
+        return jsonify(response), 400
+
+    vet = Admin(first_name = first_name, last_name = last_name, email_address = email_address)
+    vet.set_password(password)
+
+    db.session.add(vet)
+    db.session.commit()
+
+    access_token = create_access_token(identity = vet.id)
+    response = {
+        "message": "You registered successfully.",
+        "access_token": access_token
+    }
+
+    return jsonify(response), 201
 
 # Run Server
 if __name__ == '__main__':
