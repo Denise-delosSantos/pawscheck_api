@@ -1,11 +1,10 @@
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_, union
 from flask_marshmallow import Marshmallow
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import base64
-import pyotp
 from flask_mail import Mail, Message
 import os
 from dotenv import load_dotenv
@@ -326,8 +325,6 @@ def generate_code():
 
         return jsonify(response), 401
 
-    session['verification_code'] = verification_code
-    session['expiration_time'] = expiration_time
     code_response = {
         'code': verification_code,
         'expiration_time': expiration_time
@@ -343,15 +340,9 @@ def generate_code():
 @app.route('/verify-code', methods=['POST'])
 def verify_code():
     input_totp = request.form['input_totp']
-
-    """ if 'verification_code' in session and 'expiration_time' in session:
-        verification_code = session['verification_code']
-        expiration_time = session['expiration_time'] """
     current_time = int(time.time())
 
     if input_totp == verification_code and current_time <= expiration_time:
-        session.pop('verification_code', None)
-        session.pop('expiration_time', None)
         return jsonify({'message': 'Verification successful'}), 200
     else:
         return jsonify({'message': 'Verification failed'}), 400
@@ -699,32 +690,27 @@ def list_records_pet(pet_id):
 
 # ===========APPOINTMENTS======================================================================================================================
 
-#GET all appointments
+#GET all appointments and records
 @app.route('/appointments', methods=['GET'])
 # @jwt_required()
 def all_appointment():
     
-    join = db.session.query(Appointment, Record, Pet, Owner).outerjoin(Record, Appointment.record_id == Record.id, full=True)
+    join = db.session.query(Appointment, Record, Pet).outerjoin(Record, Appointment.record_id == Record.id).outerjoin(Pet, or_(Appointment.pet_id == Pet.id, Record.pet_id == Pet.id)).outerjoin(Owner, Pet.owner_id == Owner.id).all()
 
-    join1 = db.session.query(Appointment, Record, Pet, Owner).outerjoin(Pet, or_(Appointment.pet_id == Pet.id, Record.pet_id == Pet.id))
-
-    full_outer_join_query = union(join, join1)
-    result = db.session.execute(full_outer_join_query).fetchall()
-
-    print(result)
-    """ if join:
+    if join:
+        # print(join)
         results = [{
             'pet_profile': pet.profile.decode() if pet else None,
             'pet_name': pet.name if pet else None,
-            'owner_first_name': owner.first_name if owner else None,
-            'owner_last_name': owner.last_name if owner else None,
+            # 'owner_first_name': owner.first_name if owner else None,
+            # 'owner_last_name': owner.last_name if owner else None,
             'appointment_date': appointment.date if appointment else None,
             'appointment_time': appointment.time if appointment else None,
             'record_create_date': record.create_date if record else None,
             'record_create_time': record.create_time  if record else None
-        } for appointment, record, pet, owner in join]
+        } for appointment, record, pet in join]
 
-        return jsonify(results), 200 """
+        return jsonify(results), 200
 
     return jsonify([]), 200
 
