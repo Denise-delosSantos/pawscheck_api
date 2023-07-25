@@ -690,9 +690,9 @@ def list_records_pet(pet_id):
 
 # ===========APPOINTMENTS======================================================================================================================
 
-#GET all appointments and records
-@app.route('/appointments', methods=['GET'])
-# @jwt_required()
+#GET all patients with appointment or record
+@app.route('/patients', methods=['GET'])
+@jwt_required()
 def all_appointment():
     
     join = db.session.query(Appointment, Record, Pet, Owner).outerjoin(Record, Appointment.record_id == Record.id, full=True).outerjoin(Pet, or_(Appointment.pet_id == Pet.id, Record.pet_id == Pet.id)).outerjoin(Owner, Pet.owner_id == Owner.id).order_by(asc(or_(Record.create_date, Appointment.date))).all()
@@ -1048,6 +1048,33 @@ def delete_vet(vet_id):
             }
 
             return jsonify(response), 404
+
+    except (ValueError, TypeError):
+        response = {
+            "error" : "Invalid data"
+        }
+
+        return jsonify(response), 400
+    
+# Edit vet account
+@app.route('/vet/<int:vet_id>/update', methods=['PUT'])
+@jwt_required()
+def update_vet(vet_id):
+    try:
+
+        vet = Vet.query.filter_by(id=vet_id).first()
+        if vet:
+            vet.first_name = request.form['first_name']
+            vet.last_name = request.form['last_name']
+            vet.email_address = request.form['email_address']
+            vet.password = request.form['password']
+            
+            db.session.commit()
+            response = {
+                "message": "Successfully Update"
+            }
+
+            return jsonify(response), 200
 
     except (ValueError, TypeError):
         response = {
