@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_, union
+from sqlalchemy import or_, desc, asc
 from flask_marshmallow import Marshmallow
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
@@ -695,20 +695,19 @@ def list_records_pet(pet_id):
 # @jwt_required()
 def all_appointment():
     
-    join = db.session.query(Appointment, Record, Pet).outerjoin(Record, Appointment.record_id == Record.id).outerjoin(Pet, or_(Appointment.pet_id == Pet.id, Record.pet_id == Pet.id)).outerjoin(Owner, Pet.owner_id == Owner.id).all()
+    join = db.session.query(Appointment, Record, Pet, Owner).outerjoin(Record, Appointment.record_id == Record.id, full=True).outerjoin(Pet, or_(Appointment.pet_id == Pet.id, Record.pet_id == Pet.id)).outerjoin(Owner, Pet.owner_id == Owner.id).order_by(asc(or_(Record.create_date, Appointment.date))).all()
 
     if join:
-        # print(join)
         results = [{
             'pet_profile': pet.profile.decode() if pet else None,
             'pet_name': pet.name if pet else None,
-            # 'owner_first_name': owner.first_name if owner else None,
-            # 'owner_last_name': owner.last_name if owner else None,
+            'owner_first_name': owner.first_name if owner else None,
+            'owner_last_name': owner.last_name if owner else None,
             'appointment_date': appointment.date if appointment else None,
             'appointment_time': appointment.time if appointment else None,
             'record_create_date': record.create_date if record else None,
             'record_create_time': record.create_time  if record else None
-        } for appointment, record, pet in join]
+        } for appointment, record, pet, owner in join]
 
         return jsonify(results), 200
 
