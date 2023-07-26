@@ -687,6 +687,26 @@ def list_records_pet(pet_id):
 
         return result, 200
 
+#PUT comments
+@app.route('/pet/record/<int:record_id>/comment', methods=['PUT'])
+@jwt_required()
+def update_appointment(record_id):
+    try:
+        record = Record.query.filter_by(id=record_id).first()
+        if record:
+            record.comments = request.form['comments']
+            
+            db.session.commit()
+            response = { "message": "Successfully Update" }
+
+            return jsonify(response), 200
+
+    except (ValueError, TypeError):
+        response = {
+            "error" : "Invalid data"
+        }
+
+        return jsonify(response), 400
 
 # ===========APPOINTMENTS======================================================================================================================
 
@@ -701,10 +721,25 @@ def all_appointment():
         results = [{
             'pet_profile': pet.profile.decode() if pet else None,
             'pet_name': pet.name if pet else None,
+            'pet_age': pet.age if pet else None,
+            'pet_gender': pet.gender if pet else None,
+            'pet_markings': pet.markings if pet else None,
+            'pet_breed': pet.breed if pet else None,
+            'pet_birthdate': pet.birthdate if pet else None,
+            'pet_vaccination': pet.vaccination if pet else None,
+            'pet_deworming': pet.deworming if pet else None,
             'owner_first_name': owner.first_name if owner else None,
             'owner_last_name': owner.last_name if owner else None,
+            'owner_address': owner.address if owner else None,
+            'owner_contact': owner.contact if owner else None,
+            'owner_email': owner.email_address if owner else None,
+            'appointment_ID': appointment.id if appointment else None,
             'appointment_date': appointment.date if appointment else None,
             'appointment_time': appointment.time if appointment else None,
+            'appointment_status': appointment.status if appointment else None,
+            'record_ID': record.id if record else None,
+            'record_remedy': record.remedy if record else None,
+            'record_comment': record.comments if record else None,
             'record_create_date': record.create_date if record else None,
             'record_create_time': record.create_time  if record else None
         } for appointment, record, pet, owner in join]
@@ -807,6 +842,27 @@ def update_appointment(appointment_id):
             appointment.title = request.form['title']
             appointment.date = request.form['date']
             appointment.time = request.form['time']
+            
+            db.session.commit()
+            response = { "message": "Successfully Update" }
+
+            return jsonify(response), 200
+
+    except (ValueError, TypeError):
+        response = {
+            "error" : "Invalid data"
+        }
+
+        return jsonify(response), 400
+    
+#PUT/EDIT status on appointment
+@app.route('/pet/appointment/<int:appointment_id>/status', methods=['PUT'])
+@jwt_required()
+def update_appointment(appointment_id):
+    try:
+        appointment = Appointment.query.filter_by(id=appointment_id).first()
+        if appointment:
+            appointment.status = request.form['status']
             
             db.session.commit()
             response = { "message": "Successfully Update" }
