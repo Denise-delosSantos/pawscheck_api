@@ -78,7 +78,7 @@ class Pet(db.Model):
     markings = db.Column(db.String(100), nullable=False)
     vaccination = db.Column(db.String(100))
     deworming = db.Column(db.String(100))
-    profile = db.Column(db.String, nullable=False)
+    profile = db.Column(db.LargeBinary, nullable=False)
     records = db.relationship('Record', backref='pet', lazy=True)
     appointments = db.relationship('Appointment', backref='pet', lazy=True)
     owner_id = db.Column(db.Integer, db.ForeignKey('owner.id'), nullable=False)
@@ -690,7 +690,7 @@ def list_records_pet(pet_id):
 #PUT comments
 @app.route('/pet/record/<int:record_id>/comment', methods=['PUT'])
 @jwt_required()
-def update_appointment(record_id):
+def comment_record(record_id):
     try:
         record = Record.query.filter_by(id=record_id).first()
         if record:
@@ -858,7 +858,7 @@ def update_appointment(appointment_id):
 #PUT/EDIT status on appointment
 @app.route('/pet/appointment/<int:appointment_id>/status', methods=['PUT'])
 @jwt_required()
-def update_appointment(appointment_id):
+def stauts_appointment(appointment_id):
     try:
         appointment = Appointment.query.filter_by(id=appointment_id).first()
         if appointment:
